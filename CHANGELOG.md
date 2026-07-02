@@ -1,5 +1,16 @@
 # Tintallë Changelog
 
+## v0.7.0
+### New Features
+- Localization capability added.
+- Spanish and Catalan translations included. If your system is set to either of these languages, you should see a UI in your language!
+- Automatic version check at startup. Tintallë will notify you if a new version is available.
+- Automated release builds. Now you can get your Tintallë updates faster and with less chance of me messing something up!
+- Releases now include `.deb` packages for Debian Linux-based system.
+
+
+All of this is thanks to wonderful work by [davidmunoznovoa](https://github.com/davidmunoznovoa)!
+
 ## v0.6.1
 ### New Features
 - For advanced users: Added an Anima Terminal (under the Connection menu) to send raw commands to the connected Anima.
