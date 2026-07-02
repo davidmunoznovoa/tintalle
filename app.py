@@ -25,7 +25,7 @@ from copy import deepcopy
 import json
 import glob
 
-script_version = '0.6.1'
+script_version = '0.7.0'
 script_authors = 'Jason Ramboz'
 script_repo = 'https://github.com/jramboz/tintalle'
 
