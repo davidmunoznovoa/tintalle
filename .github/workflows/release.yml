@@ -199,8 +199,8 @@ jobs:
     timeout-minutes: 30
 
     env:
-      DEBFULLNAME: ${{ vars.DEBFULLNAME }}
-      DEBEMAIL: ${{ vars.DEBEMAIL }}
+      DEBFULLNAME: ${{ vars.DEBFULLNAME || 'Tintalle CI' }}
+      DEBEMAIL: ${{ vars.DEBEMAIL || 'github-actions[bot]@users.noreply.github.com' }}
 
     steps:
       - name: Check out repository
