@@ -844,23 +844,36 @@ class Main_Window(QMainWindow, Ui_MainWindow):
         return files
 
     @staticmethod
-    def normalize_raw_extensions(files: list[str]) -> list[str]:
-        '''Ensure file names end in '.RAW' exactly. The Anima requires this and it is case sensitive.
+    def normalize_raw_extensions(files: list[str], temporary_directory: str) -> list[str]:
+        """Return upload paths with RAW extensions normalized to uppercase.
 
-        Files with a lower or mixed case extension are copied to a temporary directory
-        under the corrected name, so the user's original files are left untouched.
-        Returns the list of file paths to upload.'''
+        Files whose RAW extension uses different casing are copied into
+        temporary_directory. The user's original files are left untouched.
+        """
         log = logging.getLogger()
         normalized = []
+
         for file in files:
             base, ext = os.path.splitext(file)
+
             if ext != '.RAW' and ext.upper() == '.RAW':
-                dest = os.path.join(tempfile.mkdtemp(prefix='tintalle_'), os.path.basename(base) + '.RAW')
-                shutil.copy2(file, dest)
-                log.info(f'Capitalizing file extension: {os.path.basename(file)} will be uploaded as {os.path.basename(dest)}')
-                normalized.append(dest)
+                destination = os.path.join(
+                    temporary_directory,
+                    os.path.basename(base) + '.RAW',
+                )
+
+                shutil.copy2(file, destination)
+
+                log.info(
+                    'Capitalizing file extension: %s will be uploaded as %s',
+                    os.path.basename(file),
+                    os.path.basename(destination),
+                )
+
+                normalized.append(destination)
             else:
                 normalized.append(file)
+
         return normalized
 
     def upload_button_handler(self):
@@ -873,20 +886,50 @@ class Main_Window(QMainWindow, Ui_MainWindow):
         if not files:
             return
 
-        if files:
-            # The Anima requires the '.RAW' extension to be upper case
-            files = self.normalize_raw_extensions(files)
-            files.sort()
-            if self.anima_is_NXT():
-                # move any BEEP.RAW files to last
-                files = self.move_beep_to_last(files)
-                if not files[-1].endswith('BEEP.RAW'): # if a BEEP.RAW is not included in the list to upload
-                    if 'BEEP.RAW' not in self.files_dict.keys(): # and there's not already a BEEP.RAW on the saber
-                        self.log.info('NXT saber detected and no BEEP.RAW provided. Adding default BEEP.RAW.')
-                        files.append(os.path.join(resourcedir, 'OpenCore_OEM', 'BEEP.RAW'))
-            self.log.debug(f'List of files to upload: {files}')
+        asyncio.ensure_future(
+            self._prepare_and_upload_files(files)
+        )
 
-            asyncio.ensure_future(self._upload_files(files))
+    async def _prepare_and_upload_files(self, files: list[str]) -> None:
+        """Prepare selected sound files and keep temporary copies alive
+        until the upload operation has finished.
+        """
+        with tempfile.TemporaryDirectory(
+            prefix='tintalle_'
+        ) as temporary_directory:
+            upload_files = self.normalize_raw_extensions(
+                files,
+                temporary_directory,
+            )
+
+            upload_files.sort()
+
+            if self.anima_is_NXT():
+                # Move any BEEP.RAW files to last
+                upload_files = self.move_beep_to_last(upload_files)
+
+                # If BEEP.RAW was not selected and is not already on the saber,
+                # include Tintallë's default BEEP.RAW.
+                if not upload_files[-1].endswith('BEEP.RAW'):
+                    if 'BEEP.RAW' not in self.files_dict:
+                        self.log.info(
+                            'NXT saber detected and no BEEP.RAW provided. '
+                            'Adding default BEEP.RAW.'
+                        )
+                        upload_files.append(
+                            os.path.join(
+                                resourcedir,
+                                'OpenCore_OEM',
+                                'BEEP.RAW',
+                            )
+                        )
+
+            self.log.debug(
+                'List of files to upload: %s',
+                upload_files,
+            )
+
+            await self._upload_files(upload_files)
 
     async def _upload_files(self, files: list[str], set_effects: bool = True, reload_config: bool = True, autoclose: bool = False):
         fupd = File_Upload_Progress_Dialog(self, multifile=True if len(files) > 1 else False, autoclose=autoclose)
