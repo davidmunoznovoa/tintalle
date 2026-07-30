@@ -24,6 +24,8 @@ from datetime import datetime
 from copy import deepcopy
 import json
 import glob
+import tempfile
+import shutil
 
 script_version = '0.7.0'
 script_authors = 'Jason Ramboz'
@@ -841,28 +843,93 @@ class Main_Window(QMainWindow, Ui_MainWindow):
                 files.append(file)
         return files
 
+    @staticmethod
+    def normalize_raw_extensions(files: list[str], temporary_directory: str) -> list[str]:
+        """Return upload paths with RAW extensions normalized to uppercase.
+
+        Files whose RAW extension uses different casing are copied into
+        temporary_directory. The user's original files are left untouched.
+        """
+        log = logging.getLogger()
+        normalized = []
+
+        for file in files:
+            base, ext = os.path.splitext(file)
+
+            if ext != '.RAW' and ext.upper() == '.RAW':
+                destination = os.path.join(
+                    temporary_directory,
+                    os.path.basename(base) + '.RAW',
+                )
+
+                shutil.copy2(file, destination)
+
+                log.info(
+                    'Capitalizing file extension: %s will be uploaded as %s',
+                    os.path.basename(file),
+                    os.path.basename(destination),
+                )
+
+                normalized.append(destination)
+            else:
+                normalized.append(file)
+
+        return normalized
+
     def upload_button_handler(self):
         # Get a list of files to upload. Can be one file or multiple files
         files = QFileDialog.getOpenFileNames(
             self,
-            filter=self.tr('RAW Sound Files (*.RAW)'),
+            filter=self.tr('RAW Sound Files (*.RAW *.raw)'),
         )[0]
 
         if not files:
             return
 
-        if files:
-            files.sort()
-            if self.anima_is_NXT():
-                # move any BEEP.RAW files to last
-                files = self.move_beep_to_last(files)
-                if not files[-1].endswith('BEEP.RAW'): # if a BEEP.RAW is not included in the list to upload
-                    if 'BEEP.RAW' not in self.files_dict.keys(): # and there's not already a BEEP.RAW on the saber
-                        self.log.info('NXT saber detected and no BEEP.RAW provided. Adding default BEEP.RAW.')
-                        files.append(os.path.join(resourcedir, 'OpenCore_OEM', 'BEEP.RAW'))
-            self.log.debug(f'List of files to upload: {files}')
+        asyncio.ensure_future(
+            self._prepare_and_upload_files(files)
+        )
 
-            asyncio.ensure_future(self._upload_files(files))
+    async def _prepare_and_upload_files(self, files: list[str]) -> None:
+        """Prepare selected sound files and keep temporary copies alive
+        until the upload operation has finished.
+        """
+        with tempfile.TemporaryDirectory(
+            prefix='tintalle_'
+        ) as temporary_directory:
+            upload_files = self.normalize_raw_extensions(
+                files,
+                temporary_directory,
+            )
+
+            upload_files.sort()
+
+            if self.anima_is_NXT():
+                # Move any BEEP.RAW files to last
+                upload_files = self.move_beep_to_last(upload_files)
+
+                # If BEEP.RAW was not selected and is not already on the saber,
+                # include Tintallë's default BEEP.RAW.
+                if not upload_files[-1].endswith('BEEP.RAW'):
+                    if 'BEEP.RAW' not in self.files_dict:
+                        self.log.info(
+                            'NXT saber detected and no BEEP.RAW provided. '
+                            'Adding default BEEP.RAW.'
+                        )
+                        upload_files.append(
+                            os.path.join(
+                                resourcedir,
+                                'OpenCore_OEM',
+                                'BEEP.RAW',
+                            )
+                        )
+
+            self.log.debug(
+                'List of files to upload: %s',
+                upload_files,
+            )
+
+            await self._upload_files(upload_files)
 
     async def _upload_files(self, files: list[str], set_effects: bool = True, reload_config: bool = True, autoclose: bool = False):
         fupd = File_Upload_Progress_Dialog(self, multifile=True if len(files) > 1 else False, autoclose=autoclose)
