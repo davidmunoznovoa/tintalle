@@ -13,6 +13,7 @@ import version_compare as vc
 import update_checker as uc
 import firmware
 import color as Color
+from ast import literal_eval
 from enum import Enum, auto
 import logging
 import sys
@@ -386,7 +387,17 @@ class Main_Window(QMainWindow, Ui_MainWindow):
 
         try:
             # TODO: make timeout customizable in settings
-            self.saber_config = eval(await asyncio.wait_for(self.sc.read_config_ini(), timeout=10))
+            config_text = await self.sc.read_config_ini(timeout=10)
+
+            try:
+                parsed_config = literal_eval(config_text)
+            except (SyntaxError, ValueError) as exc:
+                raise InvalidSaberResponseException("config.ini does not contain a valid Python dictionary.") from exc
+
+            if not isinstance(parsed_config, dict):
+                raise InvalidSaberResponseException("The root value in config.ini is not a dictionary.")
+
+            self.saber_config = parsed_config
             self.current_config = deepcopy(self.saber_config)
             self.log.debug(f'Retrieved config.ini:\n{self.saber_config}')
             self.files_dict = await self.sc.list_files_on_saber()
